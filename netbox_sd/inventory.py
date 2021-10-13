@@ -107,38 +107,47 @@ class NetboxInventory:
         name = self._get_name_from_record(data, host_type)
         host = Host(data.id, name, ip, host_type=host_type)
 
-        # add labels if attribute is available
+        if host.host_type == HostType.DEVICE:
+            if getattr(data, "site", None):
+                host.add_label("site", data.site.name)
+                host.add_label("site_slug", data.site.slug)
+            if getattr(data, "device_role", None):
+                host.add_label("role", data.device_role.name)
+                host.add_label("role_slug", data.device_role.slug)
+            if getattr(data, "device_type", None):
+                host.add_label("device_type", data.device_type.model)
+                host.add_label("device_type", data.device_type.slug)
+
+        if host.host_type == HostType.VIRTUAL_MACHINE:
+            if getattr(data, "role", None):
+                host.add_label("role", data.role.name)
+                host.add_label("role_slug", data.role.slug)
+
+            if getattr(data, "cluster", None):
+                host.add_label("cluster", data.cluster.name)
+                # Add site from cluster if type is a VM
+                if getattr(data.cluster, "site", None):
+                    host.add_label("site", data.cluster.site.name)
+                    host.add_label("site_slug", data.cluster.site.slug)
+
+        if host.host_type == HostType.IP_ADDRESS:
+            if getattr(data, "dns_name", None):
+                host.add_label("dns_name", data.dns_name)
+            if getattr(data, "role", None):
+                host.add_label("role", data.role.label)
+                host.add_label("role_slug", data.role.value)
+
+        # Add common attributes for all objects
         if getattr(data, "tenant", None):
             host.add_label("tenant", data.tenant.name)
             host.add_label("tenant_slug", data.tenant.slug)
             if data.tenant.group:
                 host.add_label("tenant_group", data.tenant.group.name)
                 host.add_label("tenant_group_slug", data.tenant.group.slug)
-        if getattr(data, "site", None):
-            host.add_label("site", data.site.name)
-            host.add_label("site_slug", data.site.slug)
-        # Normalize VM role and device role
-        if getattr(data, "device_role", None):
-            host.add_label("role", data.device_role.name)
-            host.add_label("role_slug", data.device_role.slug)
-        if getattr(data, "role", None):
-            host.add_label("role", data.role.name)
-            host.add_label("role_slug", data.role.slug)
-        if getattr(data, "cluster", None):
-            host.add_label("cluster", data.cluster.name)
-        if getattr(data, "device_type", None):
-            host.add_label("device_type", data.device_type.model)
-            host.add_label("device_type", data.device_type.slug)
+
         if getattr(data, "platform", None):
             host.add_label("platform", data.platform.name)
             host.add_label("platform_slug", data.platform.slug)
-
-        # Add site drom cluster if type is a VM
-        if host.host_type == HostType.VIRTUAL_MACHINE:
-            if getattr(data, "cluster", None):
-                if getattr(data.cluster, "site", None):
-                    host.add_label("site", data.cluster.site.name)
-                    host.add_label("site_slug", data.cluster.site.slug)
 
         # Add custom attributes
         if getattr(data, "custom_fields", None):
@@ -150,10 +159,6 @@ class NetboxInventory:
             host.add_label("tags", ",".join([t.name for t in data.tags]))
             host.add_label("tag_slugs", ",".join([t.slug for t in data.tags]))
 
-        # Add dns_name if type is a IP_ADDRESS
-        if host.host_type == HostType.IP_ADDRESS:
-            if getattr(data, "dns_name", None):
-                host.add_label("dns_name", data.dns_name)
 
         return host
 
