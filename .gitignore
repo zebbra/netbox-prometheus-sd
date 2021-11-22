@@ -3,11 +3,13 @@
 # Edit at https://www.gitignore.io/?templates=python
 
 .env
+.envrc
 hack
 venv
-.vscode 
+.vscode
 .scannerwork
 test-results
+netbox.json
 
 ### Python ###
 # Byte-compiled / optimized / DLL files

@@ -52,7 +52,7 @@ class NetboxInventory:
                     if not getattr(vm, "primary_ip"):
                         logging.debug(f"Drop vm '{vm.name}' due to missing primary IP")
                         continue
-                    host = self._populate_host_from_netbox(vm, HostType.VIRTUAL_MACHINE)
+                    host = self._populate_target_from_netbox(vm, HostType.VIRTUAL_MACHINE)
                     # Add services
                     self._get_service_list_for_host(host, virtual_machine_id=vm.id)
                     self.host_list.add_host(host)
@@ -71,7 +71,7 @@ class NetboxInventory:
                             f"Drop device '{device.name}' due to missing primary IP"
                         )
                         continue
-                    host = self._populate_host_from_netbox(device, HostType.DEVICE)
+                    host = self._populate_target_from_netbox(device, HostType.DEVICE)
                     # Add services
                     self._get_service_list_for_host(host, device_id=device.id)
                     self.host_list.add_host(host)
@@ -86,7 +86,7 @@ class NetboxInventory:
                 ip_addresses_list = self.netbox.ipam.ip_addresses.filter(**filter)
                 logging.debug(f"Found {len(ip_addresses_list)} active ip addresses")
                 for ip_address in ip_addresses_list:
-                    host = self._populate_host_from_netbox(ip_address, HostType.IP_ADDRESS)
+                    host = self._populate_target_from_netbox(ip_address, HostType.IP_ADDRESS)
                     self.host_list.add_host(host)
             else:
                 logging.debug(f"skip ip_addresses population")
@@ -97,7 +97,10 @@ class NetboxInventory:
             NETBOX_REQUEST_COUNT_ERROR_TOTAL.inc()
             logging.error(f"Failed to add target: {e}")
 
-    def _populate_host_from_netbox(self, data: Record, host_type: HostType):
+    def _populate_target_from_netbox(self, data: Record, host_type: HostType):
+        if not data.has_details:
+            data.full_details()
+
         """
         Map values from netbox Records containing a virtual machine or device to a host object.
         See https://pynetbox.readthedocs.io/en/latest/response.html for more details on records.
@@ -108,36 +111,28 @@ class NetboxInventory:
         host = Host(data.id, name, ip, host_type=host_type)
 
         if host.host_type == HostType.DEVICE:
-            if getattr(data, "site", None):
-                host.add_label("site", data.site.name)
-                host.add_label("site_slug", data.site.slug)
-            if getattr(data, "device_role", None):
-                host.add_label("role", data.device_role.name)
-                host.add_label("role_slug", data.device_role.slug)
-            if getattr(data, "device_type", None):
-                host.add_label("device_type", data.device_type.model)
-                host.add_label("device_type", data.device_type.slug)
+            self._populate_device_labels_from_netbox(data, host)
 
         if host.host_type == HostType.VIRTUAL_MACHINE:
-            if getattr(data, "role", None):
-                host.add_label("role", data.role.name)
-                host.add_label("role_slug", data.role.slug)
-
-            if getattr(data, "cluster", None):
-                host.add_label("cluster", data.cluster.name)
-                # Add site from cluster if type is a VM
-                if getattr(data.cluster, "site", None):
-                    host.add_label("site", data.cluster.site.name)
-                    host.add_label("site_slug", data.cluster.site.slug)
+            self._populate_vm_labels_from_netbox(data, host)
 
         if host.host_type == HostType.IP_ADDRESS:
-            if getattr(data, "dns_name", None):
-                host.add_label("dns_name", data.dns_name)
-            if getattr(data, "role", None):
-                host.add_label("role", data.role.label)
-                host.add_label("role_slug", data.role.value)
+            assigned_object = None
+
+            if data.assigned_object_type == "virtualization.vminterface":
+                assigned_object = self._populate_target_from_netbox(data.assigned_object.virtual_machine, HostType.VIRTUAL_MACHINE)
+
+            if data.assigned_object_type == "dcim.interface":
+                assigned_object = self._populate_target_from_netbox(data.assigned_object.device, HostType.DEVICE)
+
+            if assigned_object:
+                for (label, value) in assigned_object.labels.items():
+                    host.add_label(f"assigned_object_{label}", value)
 
         # Add common attributes for all objects
+        if getattr(data, "status", None):
+            host.add_label("status", data.status.value)
+
         if getattr(data, "tenant", None):
             host.add_label("tenant", data.tenant.name)
             host.add_label("tenant_slug", data.tenant.slug)
@@ -161,6 +156,36 @@ class NetboxInventory:
 
 
         return host
+
+    def _populate_device_labels_from_netbox(self, device: Record, host: Host):
+        if not device.has_details:
+            device.full_details()
+
+        if getattr(device, "site", None):
+            host.add_label("site", device.site.name)
+            host.add_label("site_slug", device.site.slug)
+        if getattr(device, "device_role", None):
+            host.add_label("role", device.device_role.name)
+            host.add_label("role_slug", device.device_role.slug)
+        if getattr(device, "device_type", None):
+            host.add_label("device_type", device.device_type.model)
+            host.add_label("device_type_slug", device.device_type.slug)
+
+    def _populate_vm_labels_from_netbox(self, vm: Record, host: Host):
+        if not vm.has_details:
+            vm.full_details()
+
+        if getattr(vm, "role", None):
+            host.add_label("role", vm.role.name)
+            host.add_label("role_slug", vm.role.slug)
+
+        if getattr(vm, "cluster", None):
+            host.add_label("cluster", vm.cluster.name)
+            # Add site from cluster if type is a VM
+            if getattr(vm.cluster, "site", None):
+                host.add_label("site", vm.cluster.site.name)
+                host.add_label("site_slug", vm.cluster.site.slug)
+
 
     def _get_service_list_for_host(self, host, virtual_machine_id=None, device_id=None):
         NETBOX_REQUEST_COUNT_TOTAL.inc()
@@ -188,7 +213,8 @@ class NetboxInventory:
         """
 
         if host_type == HostType.VIRTUAL_MACHINE or host_type == HostType.DEVICE:
-            return str(netaddr.IPNetwork(data.primary_ip.address).ip)
+            if data.primary_ip is not None:
+                return str(netaddr.IPNetwork(data.primary_ip.address).ip)
 
         if host_type == HostType.IP_ADDRESS:
             return str(netaddr.IPNetwork(data.address).ip)

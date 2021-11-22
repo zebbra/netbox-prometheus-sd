@@ -18,20 +18,25 @@ class Host:
         self.id = id
         self.host_type = host_type
         self.labels = {}
-        self.labels["__meta_netbox_ip"] = ip_address
-        self.labels["__meta_netbox_name"] = hostname
-        self.labels["__meta_netbox_type"] = host_type.value
-        self.labels["__meta_netbox_id"] = str(id)
+        self.labels["ip"] = ip_address
+        self.labels["name"] = hostname
+        self.labels["type"] = host_type.value
+        self.labels["id"] = str(id)
 
     def add_label(self, key, value):
         """ Add a netbox prefixed meta label to the host """
         key = key.replace("-", "_").replace(" ", "_")
         logging.debug(f"Add label '{key}' with value '{value}'")
-        self.labels[f"%s_%s" % ("__meta_netbox", key)] = str(value)
+
+        if value == None: value = ""
+        if value == True: value = "true"
+        if value == False: value = "false"
+
+        self.labels[key] = str(value)
 
     def to_sd_json(self):
-        return {"targets": [self.ip_address], "labels": self.labels}
-
+        prefixed_labels = {f"__meta_netbox_{label}": value for (label, value) in self.labels.items()}
+        return {"targets": [self.ip_address], "labels": prefixed_labels}
 
 class HostList:
     """ Collection of host objects """

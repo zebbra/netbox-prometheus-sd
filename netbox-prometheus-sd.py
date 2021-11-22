@@ -19,9 +19,7 @@ from prometheus_client import start_http_server, Summary
 env = Env()
 env.read_env()
 
-
 class Config(object):
-
     netbox_url = env("NETBOX_SD_URL")
     netbox_token = env("NETBOX_SD_TOKEN")
     netbox_verify_ssl = env.bool("NETBOX_SD_VERIFY_SSL", True)

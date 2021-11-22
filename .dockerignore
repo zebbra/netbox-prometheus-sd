@@ -1,0 +1,8 @@
+.envrc
+netbox.json
+
+netbox_sd/__pycache__
+/tests/*
+/example/*
+.vscode
+.git
