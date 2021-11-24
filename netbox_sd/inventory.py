@@ -6,10 +6,13 @@ import argparse
 import time
 
 import netaddr
+from netaddr.ip import IPAddress
 
 from pynetbox.core.api import Api
 from pynetbox.core.response import Record
 from pynetbox import RequestError
+from pynetbox.models.dcim import Devices
+from pynetbox.models.virtualization import VirtualMachines
 from requests.exceptions import ConnectionError
 
 from prometheus_client import Summary, Gauge, Counter
@@ -32,6 +35,9 @@ NETBOX_REQUEST_COUNT_ERROR_TOTAL = Counter(
 
 
 class NetboxInventory:
+    netbox: Api
+    host_list: HostList
+
     def __init__(self, netbox: Api):
         self.netbox = netbox
         self.host_list = HostList()
@@ -98,8 +104,8 @@ class NetboxInventory:
             logging.error(f"Failed to add target: {e}")
 
     def _populate_target_from_netbox(self, data: Record, host_type: HostType):
-        if not data.has_details:
-            data.full_details()
+        # if not data.has_details:
+        #     data.full_details()
 
         """
         Map values from netbox Records containing a virtual machine or device to a host object.
@@ -117,17 +123,7 @@ class NetboxInventory:
             self._populate_vm_labels_from_netbox(data, host)
 
         if host.host_type == HostType.IP_ADDRESS:
-            assigned_object = None
-
-            if data.assigned_object_type == "virtualization.vminterface":
-                assigned_object = self._populate_target_from_netbox(data.assigned_object.virtual_machine, HostType.VIRTUAL_MACHINE)
-
-            if data.assigned_object_type == "dcim.interface":
-                assigned_object = self._populate_target_from_netbox(data.assigned_object.device, HostType.DEVICE)
-
-            if assigned_object:
-                for (label, value) in assigned_object.labels.items():
-                    host.add_label(f"assigned_object_{label}", value)
+            self._populate_ip_address_labels_from_netbox(data, host)
 
         # Add common attributes for all objects
         if getattr(data, "status", None):
@@ -157,10 +153,31 @@ class NetboxInventory:
 
         return host
 
-    def _populate_device_labels_from_netbox(self, device: Record, host: Host):
-        if not device.has_details:
-            device.full_details()
+    def _find_assigned_host_for_ip_address(self, ip_address: IPAddress):
+        host_id = None
+        host_type = None
 
+        if ip_address.assigned_object_type == "virtualization.vminterface":
+            host_id = ip_address.assigned_object.virtual_machine.id
+            host_type = HostType.VIRTUAL_MACHINE
+        elif ip_address.assigned_object_type == "dcim.interface":
+            host_id = ip_address.assigned_object.device.id
+            host_type = HostType.DEVICE
+        else:
+            return None
+
+        for host in self.host_list.hosts:
+            if host.id == host_id and host.host_type == host_type:
+                return host
+
+    def _populate_ip_address_labels_from_netbox(self, ip_address: IPAddress, host: Host):
+        assigned_object = self._find_assigned_host_for_ip_address(ip_address)
+
+        if assigned_object is not None:
+            for (label, value) in assigned_object.labels.items():
+                host.add_label(f"assigned_object_{label}", value)
+
+    def _populate_device_labels_from_netbox(self, device: Devices, host: Host):
         if getattr(device, "site", None):
             host.add_label("site", device.site.name)
             host.add_label("site_slug", device.site.slug)
@@ -171,10 +188,7 @@ class NetboxInventory:
             host.add_label("device_type", device.device_type.model)
             host.add_label("device_type_slug", device.device_type.slug)
 
-    def _populate_vm_labels_from_netbox(self, vm: Record, host: Host):
-        if not vm.has_details:
-            vm.full_details()
-
+    def _populate_vm_labels_from_netbox(self, vm: VirtualMachines, host: Host):
         if getattr(vm, "role", None):
             host.add_label("role", vm.role.name)
             host.add_label("role_slug", vm.role.slug)

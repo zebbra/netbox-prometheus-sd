@@ -76,15 +76,15 @@ def main():
 
     while True:
 
-        logging.debug(f"Populate from netbox")
+        logging.info(f"Populate from netbox")
         inventory.populate(config.netbox_filter_json, config.netbox_objects)
-        logging.debug(f"Found {len(inventory.host_list.hosts)} targets")
+        logging.info(f"Found {len(inventory.host_list.hosts)} targets")
 
-        logging.debug(f"Write targest to {config.file_path}")
+        logging.info(f"Write targest to {config.file_path}")
         writer = PrometheusSDWriter(config.file_path)
         writer.write(inventory.host_list)
 
-        logging.debug(f"Waiting {config.loop_delay} seconds for next loop")
+        logging.info(f"Waiting {config.loop_delay} seconds for next loop")
         time.sleep(config.loop_delay)
 
 
