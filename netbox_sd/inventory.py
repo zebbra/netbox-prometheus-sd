@@ -47,61 +47,59 @@ class NetboxInventory:
         self.host_list.clear()
         # filter = {"status": "active"}
         logging.debug(f"Filter is :{filter}")
-        try:
-            if 'vm' in netbox_objects:
-                NETBOX_REQUEST_COUNT_TOTAL.inc()
-                vm_list = self.netbox.virtualization.virtual_machines.filter(**filter)
-                logging.debug(f"Found {len(vm_list)} active virtual machines")
 
-                for vm in vm_list:
-                    # filter vms without primary ip
-                    if not getattr(vm, "primary_ip"):
-                        logging.debug(f"Drop vm '{vm.name}' due to missing primary IP")
-                        continue
-                    host = self._populate_target_from_netbox(vm, HostType.VIRTUAL_MACHINE)
-                    # Add services
-                    self._get_service_list_for_host(host, virtual_machine_id=vm.id)
-                    self.host_list.add_host(host)
-            else:
-                logging.debug(f"skip vm population")
+        if 'vm' in netbox_objects:
+            NETBOX_REQUEST_COUNT_TOTAL.inc()
+            vm_list = self.netbox.virtualization.virtual_machines.filter(**filter)
+            logging.debug(f"Found {len(vm_list)} active virtual machines")
 
-            if 'device' in netbox_objects:
-                # Get all active devices
-                NETBOX_REQUEST_COUNT_TOTAL.inc()
-                device_list = self.netbox.dcim.devices.filter(**filter)
-                logging.debug(f"Found {len(device_list)} active devices")
-                for device in device_list:
-                    # filter devices without primary ip
-                    if not getattr(device, "primary_ip"):
-                        logging.debug(
-                            f"Drop device '{device.name}' due to missing primary IP"
-                        )
-                        continue
-                    host = self._populate_target_from_netbox(device, HostType.DEVICE)
-                    # Add services
-                    self._get_service_list_for_host(host, device_id=device.id)
-                    self.host_list.add_host(host)
-            else:
-                logging.debug(f"skip device population")
+            for vm in vm_list:
+                # filter vms without primary ip
+                if not getattr(vm, "primary_ip"):
+                    logging.debug(f"Drop vm '{vm.name}' due to missing primary IP")
+                    continue
+                host = self._populate_target_from_netbox(vm, HostType.VIRTUAL_MACHINE)
+                # Add services
+                self._get_service_list_for_host(host, virtual_machine_id=vm.id)
+                self.host_list.add_host(host)
+        else:
+            logging.debug(f"skip vm population")
 
-            if 'ip_address' in netbox_objects:
-                if len(netbox_objects) > 1:
-                    logging.warn(f"NETBOX_OBJECTS is set to {netbox_objects} which will lead to duplicated entries in the Prometheus servive discovery")
-                # Get all active devices
-                NETBOX_REQUEST_COUNT_TOTAL.inc()
-                ip_addresses_list = self.netbox.ipam.ip_addresses.filter(**filter)
-                logging.debug(f"Found {len(ip_addresses_list)} active ip addresses")
-                for ip_address in ip_addresses_list:
-                    host = self._populate_target_from_netbox(ip_address, HostType.IP_ADDRESS)
-                    self.host_list.add_host(host)
-            else:
-                logging.debug(f"skip ip_addresses population")
+        if 'device' in netbox_objects:
+            # Get all active devices
+            NETBOX_REQUEST_COUNT_TOTAL.inc()
+            device_list = self.netbox.dcim.devices.filter(**filter)
+            logging.debug(f"Found {len(device_list)} active devices")
+            for device in device_list:
+                # filter devices without primary ip
+                if not getattr(device, "primary_ip"):
+                    logging.debug(
+                        f"Drop device '{device.name}' due to missing primary IP"
+                    )
+                    continue
+                host = self._populate_target_from_netbox(device, HostType.DEVICE)
+                # Add services
+                self._get_service_list_for_host(host, device_id=device.id)
+                self.host_list.add_host(host)
+        else:
+            logging.debug(f"skip device population")
 
-            HOST_GAUGE.set(len(self.host_list.hosts))
+        if 'ip_address' in netbox_objects:
+            if len(netbox_objects) > 1:
+                logging.warn(f"NETBOX_OBJECTS is set to {netbox_objects} which will lead to duplicated entries in the Prometheus servive discovery")
+            # Get all active devices
+            NETBOX_REQUEST_COUNT_TOTAL.inc()
+            ip_addresses_list = self.netbox.ipam.ip_addresses.filter(**filter)
+            logging.debug(f"Found {len(ip_addresses_list)} active ip addresses")
+            for ip_address in ip_addresses_list:
+                host = self._populate_target_from_netbox(ip_address, HostType.IP_ADDRESS)
+                self.host_list.add_host(host)
+        else:
+            logging.debug(f"skip ip_addresses population")
 
-        except (ConnectionError, RequestError) as e:
-            NETBOX_REQUEST_COUNT_ERROR_TOTAL.inc()
-            logging.error(f"Failed to add target: {e}")
+        HOST_GAUGE.set(len(self.host_list.hosts))
+
+
 
     def _populate_target_from_netbox(self, data: Record, host_type: HostType):
         # if not data.has_details:

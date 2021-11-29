@@ -7,7 +7,8 @@ import time
 import signal
 
 from environs import Env
-from netbox_sd.inventory import NetboxInventory
+from pynetbox.core.query import RequestError
+from netbox_sd.inventory import NETBOX_REQUEST_COUNT_ERROR_TOTAL, NetboxInventory
 from netbox_sd.writer import PrometheusSDWriter
 
 import pynetbox
@@ -75,14 +76,18 @@ def main():
     logging.info(f"And ... every day i'm discovering! ")
 
     while True:
+        try:
+            logging.info(f"Populate from netbox")
+            inventory.populate(config.netbox_filter_json, config.netbox_objects)
+            logging.info(f"Found {len(inventory.host_list.hosts)} targets")
 
-        logging.info(f"Populate from netbox")
-        inventory.populate(config.netbox_filter_json, config.netbox_objects)
-        logging.info(f"Found {len(inventory.host_list.hosts)} targets")
+            logging.info(f"Write targest to {config.file_path}")
+            writer = PrometheusSDWriter(config.file_path)
+            writer.write(inventory.host_list)
 
-        logging.info(f"Write targest to {config.file_path}")
-        writer = PrometheusSDWriter(config.file_path)
-        writer.write(inventory.host_list)
+        except (ConnectionError, RequestError) as e:
+            NETBOX_REQUEST_COUNT_ERROR_TOTAL.inc()
+            logging.error(f"Failed to add target: {e}")
 
         logging.info(f"Waiting {config.loop_delay} seconds for next loop")
         time.sleep(config.loop_delay)

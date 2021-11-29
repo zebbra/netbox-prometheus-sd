@@ -12,11 +12,11 @@ class HostType(Enum):
 class Host:
     """ Represents a virtual machine or device in netbox """
 
-    hostname: str
-    ip_address: str
-    id: int
-    host_type: str
-    labels: dict[str, str]
+    # hostname: str
+    # ip_address: str
+    # id: int
+    # host_type: str
+    # labels: dict[str, str]
 
     def __init__(self, id, hostname, ip_address, host_type: HostType):
         self.hostname = hostname
@@ -47,7 +47,7 @@ class Host:
 class HostList:
     """ Collection of host objects """
 
-    hosts: list[Host]
+    # hosts: list[Host]
 
     def __init__(self):
         self.hosts = []
